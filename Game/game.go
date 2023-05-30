@@ -37,6 +37,8 @@ type Game interface {
 		Return the next player to play the round
 	*/
 	Next(Handler, ...Deck.Card) Player
+
+	Status() string
 	/*
 		Gives all the possible actions for the player
 		i.e. pass or take card
@@ -48,5 +50,4 @@ type Game interface {
 	AddPlayers(p ...Player)
 	RemovePlayers(p ...Player)
 
-	Broadcast()
 }

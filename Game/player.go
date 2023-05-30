@@ -10,6 +10,9 @@ type Player interface {
 	// Play(...Deck.Card)
 
 	Connect(net.Conn, Game)
+	Accept(data[]byte)
+
+	// Broadcast(data[]byte)
 
 	Cards() Deck.Deck
 	AddCards(...Deck.Card)

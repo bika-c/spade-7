@@ -82,8 +82,8 @@ func (r Rank) String() string {
 }
 
 type Card struct {
-	Rank Rank
-	Suit Suit
+	Rank Rank `json:"rank"`
+	Suit Suit `json:"card"`
 }
 
 func (a Card) Less(b Card) bool {
