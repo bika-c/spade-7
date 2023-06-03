@@ -172,6 +172,15 @@ func (d Deck) Shuffle() {
 	rand.Shuffle(d.Len(), d.Swap)
 }
 
+func (a Deck) Has(c Card) bool {
+	for i := 0; i < a.Len(); i++ {
+		if a[i] == c {
+			return true
+		}
+	}
+	return false
+}
+
 func (a Deck) Intersection(b Deck) Deck {
 	hash := make(map[Card]bool, a.Len())
 	len := a.Len()
@@ -191,27 +200,41 @@ func (a Deck) Intersection(b Deck) Deck {
 	return i
 }
 
-func (d Deck) Add(c ...Card) {
-	d = append(d, c...)
+func (d *Deck) Add(c ...Card) {
+	*d = append(*d, c...)
 }
 
-func (d Deck) Remove(remove ...Card) {
+func (d *Deck) RemoveAt(i int) {
+	if i < 0 || i >= d.Len() {
+		return
+	}
+
+	(*d)[i] = (*d)[len(*d)-1]
+	(*d)[len(*d)-1] = Card{}
+	*d = (*d)[:len(*d)-1]
+
+}
+
+func (d *Deck) Remove(remove ...Card) {
 	count := len(remove)
-	for i := d.Len(); i >= 0; i-- {
+	for i := d.Len() - 1; i >= 0; i-- {
 		if count == 0 {
 			return
 		}
-		c := d[i]
+		c := (*d)[i]
 		for _, rem := range remove {
-			if c == rem {
-				count--
-				d[i] = d[len(d)-1]
-				d[len(d)-1] = Card{}
-				d = d[:len(d)-1]
-				break
+			if c != rem {
+				continue
 			}
+			count--
+			d.RemoveAt(i)
 		}
 	}
+}
+
+func (d Deck) Random() (Card, int){
+	r := rand.Intn(d.Len())
+	return d[r], r
 }
 
 func (d Deck) Len() int {

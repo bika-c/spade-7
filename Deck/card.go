@@ -81,9 +81,13 @@ func (r Rank) String() string {
 	}
 }
 
+var Invalid = Card{
+	99, 100,
+}
+
 type Card struct {
 	Rank Rank `json:"rank"`
-	Suit Suit `json:"card"`
+	Suit Suit `json:"suit"`
 }
 
 func (a Card) Less(b Card) bool {

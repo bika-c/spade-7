@@ -12,8 +12,8 @@ The server accepts the response in following format:
 
 ```json
 {
-    "move": 0|1,
-    "index": 0-53
+    "index": 0-53,
+    "challenge": 100
 }
 ```
 

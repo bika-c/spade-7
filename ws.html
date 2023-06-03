@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket Chat</title>
+</head>
+
+<body>
+
+    <input type="number" name="" id="game">
+    <input type="number" name="" id="player">
+    <button onclick="newRequest()">Dial</button>
+    <h2>Player Info</h2>
+    <ul id="players">
+    </ul>
+    <h3 id="current">Current: </h3>
+    <h2>Board</h2>
+    <h4 id="total">Total: </h2>
+        <table>
+            <tbody>
+                <tr id="spade">
+                    <td>Spade</td>
+                </tr>
+                <tr id="heart">
+                    <td>Heart</td>
+                </tr>
+                <tr id="diamond">
+                    <td>Diamond</td>
+                </tr>
+                <tr id="club">
+                    <td>Club</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <script>
+            var players = document.getElementById("players");
+            var current = document.getElementById("current");
+            var total = document.getElementById("total");
+            var spade = document.getElementById("spade");
+            var heart = document.getElementById("heart");
+            var diamond = document.getElementById("diamond");
+            var club = document.getElementById("club");
+            // Create a new WebSocket connection
+
+            // Define a function to send messages to the server
+            function newRequest() {
+                let p = document.getElementById("player").value;
+                let g = document.getElementById("game").value;
+                const addr = "ws://localhost:8080/spade7/" + g + "/" + p;
+                console.log(addr);
+                const socket = new WebSocket(addr);
+
+                socket.onmessage = function (e) {
+                    players.innerHTML = "";
+                    spade.innerHTML = "<td>Spade</td>";
+                    heart.innerHTML = "<td>heart</td>";
+                    club.innerHTML = "<td>Club</td>";
+                    diamond.innerHTML = "<td>Diamond</td>";
+                    const data = JSON.parse(e.data);
+                    data.players.forEach(p => {
+                        pl = document.createElement("li");
+                        pl.innerHTML = "name: " + p.name + " cards: " + p.cards;
+                        players.appendChild(pl);
+                    });
+                    current.innerHTML = "Current: " + data.players[data.current].name;
+                    total.innerHTML = "Total on board: " + data.board.length;
+                    s = new Array(13);
+                    d = new Array(13);
+                    h = new Array(13);
+                    c = new Array(13);
+                    data.board.forEach(card => {
+                        if (card.suit == 1)
+                            s.push(card.rank);
+                        if (card.suit == 2)
+                            c.push(card.rank);
+                        if (card.suit == 3)
+                            h.push(card.rank);
+                        if (card.suit == 4)
+                            d.push(card.rank);
+                    });
+
+                    s.sort();
+                    d.sort();
+                    h.sort();
+                    c.sort();
+
+                    s.forEach(i => {
+                        t = document.createElement("td");
+                        t.innerHTML = i;
+                        spade.appendChild(t);
+                    });
+                    d.forEach(i => {
+                        t = document.createElement("td");
+                        t.innerHTML = i;
+                        diamond.appendChild(t);
+                    });
+                    h.forEach(i => {
+                        t = document.createElement("td");
+                        t.innerHTML = i;
+                        heart.appendChild(t);
+                    });
+                    c.forEach(i => {
+                        t = document.createElement("td");
+                        t.innerHTML = i;
+                        club.appendChild(t);
+                    });
+
+                };
+            }
+        </script>
+</body>
+
+</html>

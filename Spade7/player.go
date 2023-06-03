@@ -1,63 +1,140 @@
 package Spade7
 
 import (
-	"encoding/json"
-	"fmt"
-	"net"
+	"context"
+	"log"
+	"math/rand"
 	"spade-7/Deck"
 	"spade-7/Game"
+	"sync"
+
+	"github.com/bytedance/sonic"
+
+	"github.com/gorilla/websocket"
 )
 
+var ast = sonic.ConfigStd
+
 type player struct {
-	info
-	Deck Deck.Deck `json:"Cards"`
-	con  net.Conn
+	Name      string    `json:"name"`
+	ID        Game.ID   `json:"id"`
+	Deck      Deck.Deck `json:"cards"`
+	challenge int
+	con       *websocket.Conn
+	logger    *log.Logger
+	l         *sync.RWMutex
 }
 
-type info struct {
-	Name string  `json:"name"`
-	ID         Game.ID `json:"id"`
+type response struct {
+	Index     int `json:"index"`
+	Challenge int `json:"challenge"`
 }
 
-type digest struct {
-	info
-	Cards byte `json:"cards"`
+func newPlayer(l *log.Logger) player {
+	return player{
+		con:       nil,
+		Deck:      nil,
+		challenge: rand.Intn(100000),
+		logger:    l,
+		l:         &sync.RWMutex{},
+	}
+
 }
 
-func (d digest) MarshalJSON() ([]byte, error) {
-	return json.Marshal(d)
+func (p *player) readResponse(opt Deck.Deck, pre Deck.Deck, ctx context.Context) Deck.Card {
+	if p.con == nil {
+		return p.autoPick(opt, pre)
+	}
+
+	c := make(chan Deck.Card)
+	defer close(c)
+	go p.read(opt, pre, c)
+	select {
+	case <-ctx.Done():
+		p.logger.Println("Player", p.Name, p.ID, "timeout")
+		p.disConnect()
+	case card := <-c:
+		return card
+	}
+	return p.autoPick(opt, pre)
 }
+
+func (p *player) autoPick(opt Deck.Deck, pre Deck.Deck) Deck.Card {
+	if opt.Len() == 0 {
+		c, _ := pre.Random()
+		return c
+	}
+	return opt[0]
+}
+
+func (p *player) valid(opt Deck.Deck, pre Deck.Deck, i int) bool {
+	if i < 0 {
+		return false
+	}
+	if opt.Len() > 0 && i >= opt.Len() {
+		return false
+	}
+	if opt.Len() == 0 && i >= pre.Len() {
+		return false
+	}
+	return true
+}
+
+func (p *player) read(opt Deck.Deck, pre Deck.Deck, c chan Deck.Card) {
+	var r response
+	for r.Challenge != p.challenge || !p.valid(opt, pre, r.Index) {
+		e := p.con.ReadJSON(&r)
+		p.disConnect()
+		if e != nil {
+			return
+		}
+	}
+	p.challenge = rand.Intn(100000)
+	if opt.Len() == 0 {
+		c <- pre[r.Index]
+	} else {
+		c <- opt[r.Index]
+	}
+}
+
+// func (d digest) MarshalJSON() ([]byte, error) {
+// 	return json.Marshal(d)
+// }
 
 func (p *player) Accept(d []byte) {
-	p.con.Write(d)
+	if p.con == nil {
+		return
+	}
+	p.l.Lock()
+	defer p.l.Unlock()
+	p.con.WriteMessage(websocket.TextMessage, d)
 }
 
-func (p *player) Connect(c net.Conn, g Game.Game) {
+// func (p *player) Connect(c net.Conn, g Game.Game) {
 
-	var s *Spade7 = g.(*Spade7)
-	p.disConnect()
-	p.con = c
+// 	var s *Spade7 = g.(*Spade7)
+// 	p.disConnect()
 
-	go func(p *player, g *Spade7) {
-		defer p.disConnect()
-		b := make([]byte, 0, 4)
-		g.AddPlayers(p)
-		defer g.RemovePlayers(p)
+// 	go func(p *player, g *Spade7) {
+// 		defer p.disConnect()
+// 		b := make([]byte, 0, 4)
+// 		g.AddPlayers(p)
+// 		defer g.RemovePlayers(p)
 
-		for n, e := c.Read(b); e != nil; n, e = c.Read(b) {
-			fmt.Printf("n: %v\n", n)
-		}
+// 		for n, e := c.Read(b); e != nil; n, e = c.Read(b) {
+// 			fmt.Printf("n: %v\n", n)
+// 		}
 
-	}(p, s)
-}
+// 	}(p, s)
+// }
 
-func (p *player) Name() string {
-	return p.info.Name
-}
+// func (p *player) Name() string {
+// 	return p.info.Name
+// }
 
-func (p *player) ID() Game.ID {
-	return p.info.ID
-}
+// func (p *player) ID() Game.ID {
+// 	return p.info.ID
+// }
 
 func (p *player) Cards() Deck.Deck {
 	return p.Deck
@@ -77,42 +154,60 @@ func (p *player) Remove(i int) {
 	p.Deck = p.Deck[:len(p.Deck)-1]
 }
 
-func (p *player) json(cards bool) json.Marshaler {
-	if cards {
-		return p
+func (p *player) json(cards bool) ([]byte, error) {
+	type a player
+	var x a = a(*p)
+	s, e := ast.MarshalToString(x)
+	if e != nil {
+		return []byte{}, e
 	}
-	return digest{
-		p.info,
-		byte(p.Deck.Len()),
+	t, _ := sonic.GetFromString(s)
+	t.SetAny("online", p.con != nil)
+	if !cards {
+		t.SetAny("cards", p.Deck.Len())
 	}
+	return t.MarshalJSON()
 }
 
 func (p *player) MarshalJSON() ([]byte, error) {
-	return json.Marshal(p)
+	return p.json(false)
 }
 
 func (p *player) disConnect() {
 	if p.con != nil {
-		p.con.Close()
-		p.con = nil
+		// p.con.WriteMessage(websocket.CloseMessage, nil)
+		// p.con.Close()
+		// p.con = nil
+		p.logger.Println("Player", p.Name, p.ID, "disconnected")
 	}
 }
 
 type players []player
 
+func (p players) Len() int {
+	return len(p)
+}
+
+func (p players) get(id Game.ID) *player {
+
+	for i := 0; i < len(p); i++ {
+		if p[i].ID == id {
+			return &p[i]
+		}
+	}
+
+	return nil
+}
+
 func (p players) hasPlayer(id Game.ID) bool {
 	for i := 0; i < len(p); i++ {
-		if p[i].info.ID == id {
+		if p[i].ID == id {
 			return true
 		}
 	}
 	return false
 }
 
-func (p players) MarshalJSON() ([]byte, error) {
-	r := make([]json.Marshaler, len(p))
-	for i := 0; i < len(p); i++ {
-		r = append(r, p[i].json(false))
-	}
-	return json.Marshal(r)
-}
+// func (p players) MarshalJSON() ([]byte, error) {
+// 	return ast.Marshal(p)
+// }

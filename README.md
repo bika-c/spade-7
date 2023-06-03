@@ -8,17 +8,19 @@
 
 > Register a player given an unique identification to the player. Returns a server id
 
-- Header: `X-Player-ID: <string>` (must be unique)
+- Header: `Player-ID: <string>` (must be unique)
 - Parameters: NONE
 - Body: NONE
 
 #### Response
 
 - Status: `200`
-- Header: `Content-Type: application/text`
-- Body:
+- Header:
+    - `Content-Type`: `application/octet-stream`
+    - `ID`: `"ABCK`
+- Body: a big endian `uint32`
 
-    ```txt
+    ```binary
     {uint32} 
     ```
 
@@ -34,7 +36,8 @@
 #### Response
 
 - Status: `200`
-- Header: `Content-Type: application/json`
+- Header:
+    - `Content-Type`: `application/json`
 - Body:
 
     ```json
@@ -60,7 +63,8 @@
 #### Response
 
 - Status: `200`
-- Header: `Content-Type: application/json`
+- Header:
+    - `Content-Type`: `application/json`
 - Body:
 
     ```json
@@ -71,32 +75,22 @@
 
 ### `PATCH` `/games/{type}/{id}`
 
-> Join the game. Returns a websocket link for live update of the game. Must carry one of the following:
->
-> - Header: `X-PLAYER-ID:`
-> - Body: `{"id": uint32}`
+> Join the game. Returns a websocket link for live update of the game. Must carry the server id of the player
+> To use websocket, this method must be invoked
 
 - Parameters: NONE
-- Header: `X-PLAYER-ID:`
 - Body:
 
     ```json
     {
-        "id": 1234
+        "id": 1234,
+        "name": "abc" 
     }
     ```
 
 #### Response
 
 - Status: `200`
-- Header: `Content-Type: application/json`
-- Body:
-
-    ```json
-    {
-        "update": "/games/{type}/{game:id}/{player:id}"
-    }
-    ```
 
 ## Card Game Websocket Protocol
 

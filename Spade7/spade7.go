@@ -1,153 +1,219 @@
 package Spade7
 
 import (
-	"math/rand"
+	"context"
+	"errors"
+	"log"
 	"spade-7/Deck"
 	"spade-7/Game"
+	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
+type handle func(Deck.Card) bool
+
 type Spade7 struct {
-	players players
-	options Deck.Deck
-	board   Deck.Deck
+	id              Game.ID
+	players         players
+	expectedPlayers int
+	curr            atomic.Int32
 
-	drawCardHandler []Game.Handler
-	playCardHandler []Game.Handler
+	cards Deck.Deck
+	opts  Deck.Deck
+	board Deck.Deck
 
-	// todo get rid off this and merge with d Deck.Deck
-	numOfDeck int
-	current   int32
-	id        Game.ID
+	upgrader websocket.Upgrader
+	l        sync.RWMutex
+	logger   *log.Logger
 }
 
-func New(id Game.ID) *Spade7 {
+func New(id Game.ID, l *log.Logger) *Spade7 {
 	s := Spade7{
-		id: id,
+		id:              id,
+		expectedPlayers: 0,
+		board:           make(Deck.Deck, 0),
+		upgrader: websocket.Upgrader{
+			WriteBufferPool:   &sync.Pool{},
+			EnableCompression: true,
+		},
+		l:      sync.RWMutex{},
+		logger: l,
 	}
-	s.drawCardHandler = []Game.Handler{Game.Handle(s.drawCard)}
-	s.playCardHandler = []Game.Handler{Game.Handle(s.playCard)}
-	s.Reset()
 	return &s
 }
 
-func (s *Spade7) playCard(c ...Deck.Card) bool {
-	if len(c) != 0 {
-		panic("One card at a time")
-	}
-	card := c[0]
-	s.Current().RemoveCards(card)
-	s.board = append(s.board, card)
-
-	s.options.Remove(card)
-
-	if card.Rank <= Deck.SEVEN && card.Rank > Deck.ACE {
-		s.options.Add(Deck.Card{Rank: card.Rank - 1, Suit: card.Suit})
-	} else if card.Rank > Deck.SEVEN && card.Rank < Deck.KING {
-		s.options.Add(Deck.Card{Rank: card.Rank + 1, Suit: card.Suit})
-	}
-	return true
-}
-
-func (s *Spade7) drawCard(c ...Deck.Card) bool {
-	p := (int(s.current) + len(s.players) - 1) % len(s.players)
-	r := rand.Intn(len(s.players[p].Cards()))
-	s.Current().AddCards(s.players[p].Cards()[r])
-	return len(s.Current().Cards().Intersection(s.options)) != 0
-}
-
 func (s *Spade7) Ended() bool {
-	return s.board.Len() == s.numOfDeck*52
+	return s.board.Len() == s.cards.Len()
+}
+
+func (s *Spade7) start() error {
+	if s.expectedPlayers >= 0 && s.players.Len() < s.expectedPlayers {
+		return errors.New("Not Enough Player")
+	}
+	if s.board.Len() > 0 {
+		return errors.New("Already Started")
+	}
+	s.Reset()
+	s.BroadcastStat()
+	go s.manager()
+	return nil
+}
+
+// func (s *Spade7) check(t string) {
+// 	for _, v := range s.players {
+// 		if (v.Cards().Has(Deck.Card{Rank: 0, Suit: 0})) {
+// 			panic("IMPOSSIBLE: " + t)
+// 		}
+// 	}
+// }
+
+func (s *Spade7) manager() {
+	for s.Status() != "ended" {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		opt := s.opts.Intersection(s.current().Cards())
+		c := s.current().readResponse(opt, s.previous().Cards(), ctx)
+		s.next(s.options(*s.current()), c)
+		s.BroadcastStat()
+	}
+}
+
+var spade7 = Deck.Card{Rank: Deck.SEVEN, Suit: Deck.SPADE}
+
+func (s *Spade7) checkSpade7(p int, d *Deck.Deck) {
+	if s.board.Len() != 0 {
+		return
+	}
+	for i := 0; i < d.Len(); i++ {
+		if (*d)[i] == spade7 {
+			d.RemoveAt(i)
+			s.board.Add(spade7)
+			s.curr.Store(int32(p))
+		}
+	}
 }
 
 func (s *Spade7) Reset() {
-	if len(s.players) == 0 {
+	s.l.Lock()
+	defer s.l.Unlock()
+
+	if s.players.Len() == 0 {
+		s.logger.Fatal()
 		return
 	}
-	// todo optimize this to a local var
-	d := make(Deck.Deck, 0, s.numOfDeck*52)
-	for i := 0; i < s.numOfDeck; i++ {
-		d = append(d, Deck.Get(Deck.Config{Jokers: false, Faces: true})...)
-	}
-	d.Shuffle()
-	count := d.Len() / len(s.players)
+	s.cards.Shuffle()
+	count := s.cards.Len() / s.players.Len()
 
-	// todo check each player gets a new copy of the slices of cards
-	for i, p := range s.players {
-		p.Deck = d[(count * i) : (count*i)+count]
+	for i := range s.players {
+		d := s.cards[(count * i) : (count*i)+count]
+		s.checkSpade7(i, &d)
+		s.players[i].Deck = make(Deck.Deck, len(d))
+		copy(s.players[i].Deck, d)
 	}
-	for i := 0; i < d.Len()%len(s.players); i++ {
-		s.players[i].Deck = append(s.players[i].Deck, d[count*len(s.players)+1])
+	for i := 0; i < s.cards.Len()%s.players.Len(); i++ {
+		if s.board.Len() != 0 {
+			s.players[i].Deck = append(s.players[i].Deck, s.cards[count*len(s.players)+1])
+			continue
+		} else if s.cards[count*len(s.players)+1] == spade7 {
+			s.curr.Store(int32(i))
+			s.board.Add(spade7)
+			continue
+		}
+		s.players[i].Deck = append(s.players[i].Deck, s.cards[count*len(s.players)+1])
 	}
-	s.options = s.options[:0]
-	s.board = s.board[:0]
-	s.current = 0
+	s.opts = s.opts[:0]
+	s.opts = append(s.opts, Deck.Card{
+		Rank: Deck.EIGHT,
+		Suit: Deck.SPADE,
+	}, Deck.Card{
+		Rank: Deck.SIX,
+		Suit: Deck.SPADE,
+	}, Deck.Card{
+		Rank: Deck.SEVEN,
+		Suit: Deck.DIAMOND,
+	}, Deck.Card{
+		Rank: Deck.SEVEN,
+		Suit: Deck.CLUB,
+	}, Deck.Card{
+		Rank: Deck.SEVEN,
+		Suit: Deck.HEART,
+	})
 }
 
-func (s *Spade7) Current() Game.Player {
-	return &s.players[atomic.LoadInt32(&s.current)]
+func (s *Spade7) current() *player {
+	return &s.players[s.curr.Load()]
+}
+
+func (s *Spade7) previous() *player {
+	p := (int(s.curr.Load()) + (s.players.Len() - 1)) % len(s.players)
+	for i := 2; s.players[p].Deck.Len() == 0; i++ {
+		p = (int(s.curr.Load()) + (s.players.Len() - i)) % len(s.players)
+	}
+	return &s.players[p]
 }
 
 func (s *Spade7) String() string {
 	return "Spade 7"
 }
 
-func (s *Spade7) Next(m Game.Handler, c ...Deck.Card) Game.Player {
-	if m.Handle(c...) {
-		atomic.SwapInt32(&s.current, int32(int(atomic.LoadInt32(&s.current))+1%len(s.players)))
+func (s *Spade7) next(h handle, c Deck.Card) {
+	if h(c) {
+		s.curr.Store(int32(int((s.curr.Load())+1) % s.players.Len()))
 	}
 
-	return &s.players[s.current]
+	// return &s.players[s.curr.Load()]
 }
 
-func (s *Spade7) Options(p Game.Player) []Game.Handler {
-	if len(p.Cards().Intersection(s.options)) == 0 {
-		return s.drawCardHandler
+func (s *Spade7) options(p player) handle {
+	if len(p.Cards().Intersection(s.opts)) == 0 {
+		return s.drawCard
 	}
-	return s.playCardHandler
-}
-
-func (s *Spade7) Players() []Game.Player {
-	r := make([]Game.Player, 0, len(s.players))
-	for i := 0; i < len(s.players); i++ {
-		r = append(r, &s.players[i])
-	}
-	return r
-}
-
-func (s *Spade7) AddPlayers(players ...Game.Player) {
-	for _, p := range players {
-		s.players = append(s.players, *p.(*player))
-	}
-}
-
-func (s *Spade7) RemovePlayers(remove ...Game.Player) {
-	count := len(remove)
-	for i := len(s.players); i >= 0; i-- {
-		if count == 0 {
-			return
-		}
-		c := s.players[i]
-		for _, rem := range remove {
-			if c.ID() != rem.ID() {
-				continue
-			}
-			count--
-			s.players[i] = s.players[len(s.players)-1]
-			s.players[len(s.players)-1] = player{}
-			s.players = s.players[:len(s.players)-1]
-		}
-	}
+	return s.playCard
 }
 
 func (s *Spade7) Status() string {
-	var status string = "ready"
-	if s.board.Len() == 1 {
-		status = "started"
-	} else if s.Ended() {
-		status = "ended"
-	} else {
-		status = "running"
+	if s.Ended() {
+		return "ended"
+	} else if s.board.Len() > 0 {
+		return "started"
 	}
-	return status
+	return "pending"
+}
+
+func (s *Spade7) Players() (int, int) {
+	return s.players.Len(), 0
+}
+
+func (s *Spade7) playCard(card Deck.Card) bool {
+	s.current().RemoveCards(card)
+	s.board = append(s.board, card)
+
+	s.opts.Remove(card)
+
+	if card.Rank < Deck.SEVEN && card.Rank > Deck.ACE {
+		s.opts.Add(Deck.Card{Rank: card.Rank - 1, Suit: card.Suit})
+	} else if card.Rank > Deck.SEVEN && card.Rank < Deck.KING {
+		s.opts.Add(Deck.Card{Rank: card.Rank + 1, Suit: card.Suit})
+	} else {
+		s.opts.Add(Deck.Card{Rank: card.Rank + 1, Suit: card.Suit})
+		s.opts.Add(Deck.Card{Rank: card.Rank - 1, Suit: card.Suit})
+	}
+	return true
+}
+
+func (s *Spade7) drawCard(c Deck.Card) bool {
+	p := s.previous()
+	if c == Deck.Invalid {
+		r, i := p.Deck.Random()
+		s.current().AddCards(r)
+		p.Deck.RemoveAt(i)
+		return !s.opts.Has(c)
+	}
+
+	p.RemoveCards(c)
+	s.current().AddCards(c)
+	return !s.opts.Has(c)
 }
