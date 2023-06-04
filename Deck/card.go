@@ -85,6 +85,10 @@ var Invalid = Card{
 	99, 100,
 }
 
+func (c Card) Valid() bool {
+	return c.Rank >= 1 && c.Rank <= 4 && c.Suit >= 1 && c.Suit <= 15
+}
+
 type Card struct {
 	Rank Rank `json:"rank"`
 	Suit Suit `json:"suit"`

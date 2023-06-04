@@ -64,8 +64,8 @@ func (s *Spade7) RemovePlayers(remove ...player) {
 	}
 }
 
-func (s *Spade7) JSONStat(p player) []byte {
-	g := gameStat{
+func (s *Spade7) newGameStat(p player) gameStat {
+	return gameStat{
 		s.players,
 		s.board,
 		int(s.curr.Load()),
@@ -76,26 +76,32 @@ func (s *Spade7) JSONStat(p player) []byte {
 			s.cards.Len() / 52,
 			s.opts.Intersection(p.Cards()),
 		}}
-	r, e := json.Marshal(g)
+}
+
+func injectChallenge(r []byte, p player) []byte {
+	root, e := sonic.Get(r)
+	if e != nil {
+		return []byte{}
+	}
+
+	player := root.Get("addon")
+	player.SetAny("challenge", p.setKey())
+	b, e := root.MarshalJSON()
+	if e != nil {
+		return []byte{}
+	}
+	return b
+}
+
+func (s *Spade7) JSONStat(p player) []byte {
+	r, e := json.Marshal(s.newGameStat(p))
 	if e != nil {
 		return []byte{}
 	}
 	if s.current().ID != p.ID {
 		return r
 	}
-
-	root, e := sonic.Get(r)
-	if e != nil {
-		return []byte{}
-	}
-
-	player := root.Get("player")
-	player.SetAny("challenge", p.challenge)
-	b, e := root.MarshalJSON()
-	if e != nil {
-		return []byte{}
-	}
-	return b
+	return injectChallenge(r, p)
 }
 
 func (s *Spade7) Broadcast(data []byte) {

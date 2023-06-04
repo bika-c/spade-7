@@ -18,7 +18,7 @@
 - Header:
     - `Content-Type`: `application/octet-stream`
     - `ID`: `"ABCK`
-- Body: a big endian `uint32`
+- Body: a big endian `uint32` (subject to change)
 
     ```binary
     {uint32} 
@@ -26,7 +26,11 @@
 
 ## Game
 
-### `GET:` `/games/{type}`
+> `{type}` denotes the name of the game i.e. spade7
+
+### `GET:` `/{type}`
+
+Not yet implemented
 
 > List all games
 
@@ -46,13 +50,14 @@
             {
                 "id": 1234,
                 "players": 4,
-                "status": "started"|"ready"|"waiting"...
+                "expected": 5,
+                "status": "started"|"ended"|"pending"
             }
         ]
     }
     ```
 
-### `POST` `/games/{type}`
+### `POST` `/{type}`
 
 > Create a game returns the id of the game created
 
@@ -65,28 +70,27 @@
 - Status: `200`
 - Header:
     - `Content-Type`: `application/json`
-- Body:
+    - `ID`: `1234`
 
-    ```json
-    {
-        "id": 1234
-    }
-    ```
+### `POST` `/{type}/{id}`
 
-### `PATCH` `/games/{type}/{id}`
-
-> Join the game. Returns a websocket link for live update of the game. Must carry the server id of the player
-> To use websocket, this method must be invoked
+> Join the game.  Must carry the server id of the player
+> To use websocket, this method must be invoked before dialing
 
 - Parameters: NONE
-- Body:
+- Body: NONE
 
-    ```json
-    {
-        "id": 1234,
-        "name": "abc" 
-    }
-    ```
+#### Response
+
+- Status: `200`
+
+### `PATCH` `/{type}/{id}`
+
+> Modify the game
+
+- Parameters: NONE
+- Header: `ID`: 12321
+- Body: A json object defined by game
 
 #### Response
 
@@ -94,14 +98,14 @@
 
 ## Card Game Websocket Protocol
 
-- All messages are communicated using JSON (client to server and server to json) (binary is considered but not planed)
+- All messages are communicated using JSON (client to server and server to json)
 
 - Game stat is defined as
 
     ```json
     {
         "id": 123,
-        "status": "ended"|"ready"...,
+        "status": "ended"|"started"|"pending",
         "players": [
             {
                 "id": 123,
@@ -124,21 +128,11 @@
     }
     ```
 
-### Status
-
-- Send the status message to modify the status of the game
-
-    ```json
-    {
-        "status": "start"|"reset"|"ended"...
-    }
-    ```
-
 - At the event of new player joining the game, a broadcast of game stat will be sent
 
 ### Running
 
 - At the event of game start, a game stat will be broadcasted
-- At each player's turn, the protocol accepts the first valid json object (Refer to game implementation). An update of game stat response will be broadcasted
+- At each player's turn, the protocol accepts the first valid json object (Refer to game implementation). An update of game stat response will be broadcasted.
 - If it is not the player's turn, all sent messages are undefined.
 - The order of the `stat.players` is implementation defined but should stay still. `stat.current` is the index of the array

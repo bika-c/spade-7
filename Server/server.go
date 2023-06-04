@@ -123,6 +123,7 @@ func (s Server) game(w http.ResponseWriter, r *http.Request) {
 		}
 		id := s.newID(spade7)
 		s.games[spade7][id] = Spade7.New(Game.ID(id), s.logger)
+		w.Header().Set("ID", strconv.Itoa(id))
 		s.logger.Println("Game Spade7:", id, "created")
 		break
 	default:

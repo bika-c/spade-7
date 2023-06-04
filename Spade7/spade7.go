@@ -1,7 +1,6 @@
 package Spade7
 
 import (
-	"context"
 	"errors"
 	"log"
 	"spade-7/Deck"
@@ -72,16 +71,19 @@ func (s *Spade7) start() error {
 
 func (s *Spade7) manager() {
 	for s.Status() != "ended" {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
 		opt := s.opts.Intersection(s.current().Cards())
-		c := s.current().readResponse(opt, s.previous().Cards(), ctx)
+		c := s.current().readResponse(opt, s.previous().Cards(), 90*time.Second)
 		s.next(s.options(*s.current()), c)
 		s.BroadcastStat()
 	}
 }
 
 var spade7 = Deck.Card{Rank: Deck.SEVEN, Suit: Deck.SPADE}
+var initOpt = Deck.Deck{
+	Deck.Card{Rank: Deck.SEVEN, Suit: Deck.HEART},
+	Deck.Card{Rank: Deck.SEVEN, Suit: Deck.DIAMOND},
+	Deck.Card{Rank: Deck.SEVEN, Suit: Deck.CLUB},
+}
 
 func (s *Spade7) checkSpade7(p int, d *Deck.Deck) {
 	if s.board.Len() != 0 {
@@ -101,29 +103,24 @@ func (s *Spade7) Reset() {
 	defer s.l.Unlock()
 
 	if s.players.Len() == 0 {
-		s.logger.Fatal()
 		return
 	}
+
 	s.cards.Shuffle()
 	count := s.cards.Len() / s.players.Len()
 
 	for i := range s.players {
 		d := s.cards[(count * i) : (count*i)+count]
-		s.checkSpade7(i, &d)
 		s.players[i].Deck = make(Deck.Deck, len(d))
 		copy(s.players[i].Deck, d)
 	}
 	for i := 0; i < s.cards.Len()%s.players.Len(); i++ {
-		if s.board.Len() != 0 {
-			s.players[i].Deck = append(s.players[i].Deck, s.cards[count*len(s.players)+1])
-			continue
-		} else if s.cards[count*len(s.players)+1] == spade7 {
-			s.curr.Store(int32(i))
-			s.board.Add(spade7)
-			continue
-		}
 		s.players[i].Deck = append(s.players[i].Deck, s.cards[count*len(s.players)+1])
 	}
+	s.initBoard()
+}
+
+func (s *Spade7) initBoard() {
 	s.opts = s.opts[:0]
 	s.opts = append(s.opts, Deck.Card{
 		Rank: Deck.EIGHT,
@@ -131,16 +128,17 @@ func (s *Spade7) Reset() {
 	}, Deck.Card{
 		Rank: Deck.SIX,
 		Suit: Deck.SPADE,
-	}, Deck.Card{
-		Rank: Deck.SEVEN,
-		Suit: Deck.DIAMOND,
-	}, Deck.Card{
-		Rank: Deck.SEVEN,
-		Suit: Deck.CLUB,
-	}, Deck.Card{
-		Rank: Deck.SEVEN,
-		Suit: Deck.HEART,
 	})
+	for i := 0; i < s.cards.Len()/52; i++ {
+		s.opts = append(s.opts, initOpt...)
+	}
+	s.board.Add(spade7)
+	for i := 0; i < s.players.Len(); i++ {
+		if s.players[i].Deck.Has(spade7) {
+			s.players[i].RemoveCards(spade7)
+			s.curr.Store(int32(i))
+		}
+	}
 }
 
 func (s *Spade7) current() *player {
@@ -175,6 +173,9 @@ func (s *Spade7) options(p player) handle {
 }
 
 func (s *Spade7) Status() string {
+	s.l.RLock()
+	defer s.l.RUnlock()
+
 	if s.Ended() {
 		return "ended"
 	} else if s.board.Len() > 0 {
@@ -206,7 +207,7 @@ func (s *Spade7) playCard(card Deck.Card) bool {
 
 func (s *Spade7) drawCard(c Deck.Card) bool {
 	p := s.previous()
-	if c == Deck.Invalid {
+	if !c.Valid() {
 		r, i := p.Deck.Random()
 		s.current().AddCards(r)
 		p.Deck.RemoveAt(i)

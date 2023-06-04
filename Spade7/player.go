@@ -1,12 +1,13 @@
 package Spade7
 
 import (
-	"context"
 	"log"
 	"math/rand"
 	"spade-7/Deck"
 	"spade-7/Game"
 	"sync"
+
+	"time"
 
 	"github.com/bytedance/sonic"
 
@@ -31,17 +32,17 @@ type response struct {
 }
 
 func newPlayer(l *log.Logger) player {
-	return player{
+	p := player{
 		con:       nil,
 		Deck:      nil,
 		challenge: rand.Intn(100000),
 		logger:    l,
 		l:         &sync.RWMutex{},
 	}
-
+	return p
 }
 
-func (p *player) readResponse(opt Deck.Deck, pre Deck.Deck, ctx context.Context) Deck.Card {
+func (p *player) readResponse(opt Deck.Deck, pre Deck.Deck, t time.Duration) Deck.Card {
 	if p.con == nil {
 		return p.autoPick(opt, pre)
 	}
@@ -50,13 +51,18 @@ func (p *player) readResponse(opt Deck.Deck, pre Deck.Deck, ctx context.Context)
 	defer close(c)
 	go p.read(opt, pre, c)
 	select {
-	case <-ctx.Done():
+	case <-time.After(t):
 		p.logger.Println("Player", p.Name, p.ID, "timeout")
 		p.disConnect()
 	case card := <-c:
 		return card
 	}
 	return p.autoPick(opt, pre)
+}
+
+func (p *player) setKey() int {
+	p.challenge = rand.Intn(100000)
+	return p.challenge
 }
 
 func (p *player) autoPick(opt Deck.Deck, pre Deck.Deck) Deck.Card {
@@ -89,7 +95,6 @@ func (p *player) read(opt Deck.Deck, pre Deck.Deck, c chan Deck.Card) {
 			return
 		}
 	}
-	p.challenge = rand.Intn(100000)
 	if opt.Len() == 0 {
 		c <- pre[r.Index]
 	} else {

@@ -23,9 +23,9 @@ type ID uint64
 // Game is an abstraction of card games
 type Game interface {
 	// Reset. Equivalent to restart a game
-	Reset()
+	// Reset()
 	// Returns true when the game is ended
-	Ended() bool
+	// Ended() bool
 	/*
 		Advance the game.
 

@@ -4,7 +4,15 @@ The game starts with a board contains a single card, spade 7.
 
 ## ADDON
 
-The addon is an array of cards representing all possible cards to play in the player's perspective given the current board. If the addon is empty array or nil, the response must be `"move": 1` and `"move": 0` otherwise.
+```json
+{
+   "decks": 1,
+   "options": [], 
+   "challenge": 12321
+}
+```
+
+The addon has an array of cards representing all possible cards to play in the player's perspective given the current board. If the options is empty, then the `response.index` could be omitted to let the server to draw a card. Otherwise it must be a valid index: from 0 to len(previous player's card) -1. Challenge will only appear at when it's player's turn and will be updated each time.
 
 ## Player Response
 
@@ -17,9 +25,26 @@ The server accepts the response in following format:
 }
 ```
 
-### Definition
+- `index`: In response, `"index"` is the card index with respect to the server order that the player chose to play or draw.  Index can be omitted to let the server to pick one.
+- `challenge`: In each broadcast, server will attach a challenge if it is the current player's turn. To verify a valid response, the client must reply to the server with the challenge. Example: if the server sends an addon:
 
-In response, `0` represents the 'play a card' move and the `"index"` is the card index with respect to the server order that the player chose to play. `1` represents the `draw a card` move and if `index not in the range [0, len(pre.cards)]` or it is omitted then the server will pick one.
+```json
+{
+    "deck": 1,
+    "options": [],
+    "challenge": 9081
+}
+```
+
+The client should response:
+
+```json
+{
+    "challenge": 9081    
+}
+```
+
+To indicate let the server to pick a card
 
 ### IMPORTANT
 
