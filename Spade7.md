@@ -2,6 +2,18 @@
 
 The game starts with a board contains a single card, spade 7.
 
+## Config
+
+```json
+{
+    "decks": 1,             // number of decks
+    "expectedPlayers": 5,   // expected number of players
+    "status": "start"       // to start the game
+}
+```
+
+Any of those fields can be omitted to indicate no change to the game
+
 ## ADDON
 
 ```json
