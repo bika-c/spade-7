@@ -1,6 +1,7 @@
 package Server
 
 import (
+	_ "embed"
 	"io"
 	"log"
 	"math/rand"
@@ -153,7 +154,7 @@ func New() *Server {
 	r.HandlerFunc("POST", "/:type", s.new)
 	// todo
 	r.HandlerFunc("GET", "/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "ws.html")
+		w.Write(html)
 	})
 	return &s
 }
@@ -161,3 +162,6 @@ func New() *Server {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
+
+//go:embed ws.html
+var html []byte
